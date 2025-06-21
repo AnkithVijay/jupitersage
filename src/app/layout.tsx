@@ -24,11 +24,15 @@ export default function RootLayout({
 	children: React.ReactNode;
 }>) {
 	return (
-		<html lang="en">
+		<html lang="en" className="dark h-full w-full">
 			<body
-				className={`${geistSans.variable} ${geistMono.variable} antialiased`}
+				className={`${geistSans.variable} ${geistMono.variable} antialiased h-full w-full `}
+				suppressHydrationWarning={true}
 			>
-				<WalletProvider>{children}</WalletProvider>
+				<div className="absolute inset-0 bg-[url('/bg.png')] bg-cover bg-center"></div>
+				<div className="relative z-20 h-full w-full ">
+					<WalletProvider>{children}</WalletProvider>
+				</div>
 			</body>
 		</html>
 	);
