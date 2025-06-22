@@ -56,6 +56,10 @@ interface UseTradingSocketReturn {
 	setServerUrl: (url: string) => void;
 	getTradingSuggestions: (request: SuggestionsRequest) => boolean;
 	clearSuggestionsError: () => void;
+	setOrderExecutionCallback: (
+		callback: (response: OrderResponse) => void
+	) => void;
+	clearOrderExecutionCallback: () => void;
 }
 
 export function useTradingSocket(): UseTradingSocketReturn {
@@ -75,6 +79,9 @@ export function useTradingSocket(): UseTradingSocketReturn {
 	const [suggestionsError, setSuggestionsError] = useState<string | null>(
 		null
 	);
+	const [orderExecutionCallback, setOrderExecutionCallbackState] = useState<
+		((response: OrderResponse) => void) | null
+	>(null);
 
 	useEffect(() => {
 		// Initialize connection state
@@ -108,12 +115,21 @@ export function useTradingSocket(): UseTradingSocketReturn {
 
 				setOrders((prevOrders) => [...prevOrders, ...newOrders]);
 				setError(null);
+
+				// Call the order execution callback if set
+				if (orderExecutionCallback) {
+					orderExecutionCallback(response);
+				}
 			} else {
 				setError(response.error || "Order creation failed");
+				// Call the order execution callback with error if set
+				if (orderExecutionCallback) {
+					orderExecutionCallback(response);
+				}
 			}
 		});
 
-		tradingSocket.setOnOrderStatus((response: any) => {
+		tradingSocket.setOnOrderStatus((response: unknown) => {
 			if (response?.success && response?.data) {
 				const updatedOrder = response.data;
 				setOrders((prevOrders) =>
@@ -132,7 +148,7 @@ export function useTradingSocket(): UseTradingSocketReturn {
 			}
 		});
 
-		tradingSocket.setOnOrderCancelled((response: any) => {
+		tradingSocket.setOnOrderCancelled((response: unknown) => {
 			if (response?.success && response?.orderId) {
 				setOrders((prevOrders) =>
 					prevOrders.map((order) =>
@@ -188,7 +204,7 @@ export function useTradingSocket(): UseTradingSocketReturn {
 
 		// Cleanup function
 		return () => {
-			tradingSocket.disconnect(true);
+			// tradingSocket.disconnect(true);
 		};
 	}, []);
 
@@ -298,6 +314,17 @@ export function useTradingSocket(): UseTradingSocketReturn {
 		setSuggestionsError(null);
 	}, []);
 
+	const setOrderExecutionCallback = useCallback(
+		(callback: (response: OrderResponse) => void) => {
+			setOrderExecutionCallbackState(() => callback);
+		},
+		[]
+	);
+
+	const clearOrderExecutionCallback = useCallback(() => {
+		setOrderExecutionCallbackState(null);
+	}, []);
+
 	return {
 		isConnected,
 		orders,
@@ -321,5 +348,7 @@ export function useTradingSocket(): UseTradingSocketReturn {
 		setServerUrl,
 		getTradingSuggestions,
 		clearSuggestionsError,
+		setOrderExecutionCallback,
+		clearOrderExecutionCallback,
 	};
 }

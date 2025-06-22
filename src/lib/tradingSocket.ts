@@ -163,6 +163,20 @@ export class TradingSocketService {
 			this.serverUrl = serverUrl;
 		}
 
+		// Configure more resilient socket settings
+		const socketOptions = {
+			reconnection: true,
+			reconnectionAttempts: 10,
+			reconnectionDelay: 1000,
+			reconnectionDelayMax: 5000,
+			timeout: 20000,
+			pingTimeout: 30000,
+			pingInterval: 10000,
+		};
+
+		// Initialize socket with options
+		this.socket = io(this.serverUrl, socketOptions);
+
 		// Auto-connect on initialization
 		if (this.autoConnectEnabled) {
 			this.autoConnect();
@@ -179,7 +193,16 @@ export class TradingSocketService {
 
 		console.log("🔄 Auto-connecting to trading socket...");
 		try {
-			await this.connect();
+			const connected = await this.connect();
+			if (!connected) {
+				throw new Error("Connection failed");
+			}
+
+			// Reset retry count on successful connection
+			this.connectionRetryCount = 0;
+
+			// Ensure heartbeat is started
+			this.startHeartbeat();
 		} catch (error) {
 			console.error("Auto-connect failed:", error);
 			this.connectionRetryCount++;
@@ -189,8 +212,8 @@ export class TradingSocketService {
 				this.autoConnectEnabled
 			) {
 				const delay = Math.min(
-					this.retryDelay * Math.pow(2, this.connectionRetryCount),
-					30000
+					1000 * Math.pow(1.5, this.connectionRetryCount),
+					10000
 				);
 				console.log(
 					`⏰ Retrying auto-connect in ${delay / 1000} seconds...`
@@ -211,22 +234,43 @@ export class TradingSocketService {
 		}
 
 		this.heartbeatInterval = setInterval(() => {
-			if (this.socket && this.isConnected) {
-				console.log("💗 Sending heartbeat ping");
-				const pingTimeout = setTimeout(() => {
-					console.log("❌ Heartbeat ping timeout");
-					this.isConnected = false;
-					this.onConnectionChange?.(false);
-					if (!this.isReconnecting) {
-						this.scheduleReconnect();
-					}
-				}, 5000);
+			if (!this.socket || !this.isConnected) return;
 
-				this.socket.emit("ping", { timestamp: Date.now() }, () => {
-					clearTimeout(pingTimeout);
+			console.log("💗 Sending heartbeat ping");
+			this.socket.emit("ping");
+
+			// Set up timeout for pong response
+			const pongTimeout = setTimeout(() => {
+				if (!this.isConnected) return; // Already disconnected
+
+				console.log("❌ Heartbeat ping timeout");
+				this.isConnected = false;
+				this.onConnectionChange?.(false);
+
+				// Force socket reconnection
+				this.socket?.disconnect();
+
+				// Attempt immediate reconnection
+				this.connect().catch((error) => {
+					console.error(
+						"Failed to reconnect after ping timeout:",
+						error
+					);
+					// Schedule another attempt
+					setTimeout(() => this.autoConnect(), 3000);
 				});
-			}
-		}, 15000);
+			}, 10000); // 10 second timeout for pong
+
+			// Listen for pong response
+			this.socket.once("pong", () => {
+				clearTimeout(pongTimeout);
+				// Reset connection state if needed
+				if (!this.isConnected) {
+					this.isConnected = true;
+					this.onConnectionChange?.(true);
+				}
+			});
+		}, 30000); // Send heartbeat every 30 seconds
 	}
 
 	private clearIntervals() {
@@ -242,50 +286,53 @@ export class TradingSocketService {
 
 	async connect(): Promise<boolean> {
 		if (this.isReconnecting) {
-			console.log("🔄 Connection already in progress, skipping...");
+			console.log("Already attempting to reconnect...");
 			return false;
 		}
 
 		this.isReconnecting = true;
-		this.manualDisconnect = false;
 
-		return new Promise((resolve) => {
-			this.connectionAttempts++;
-			console.log(
-				`🔄 Attempting connection ${this.connectionAttempts}/${this.maxRetries} to Sage BG server at: ${this.serverUrl}`,
-				this.serverUrl === getPrimaryServerUrl()
-					? "(Primary Server)"
-					: "(Fallback Server)"
-			);
+		try {
+			if (this.socket) {
+				this.socket.disconnect();
+			}
 
-			try {
-				if (this.socket) {
-					this.socket.removeAllListeners();
-					this.socket = null;
+			// Configure socket with more aggressive timeouts
+			this.socket = io(this.serverUrl, {
+				reconnection: true,
+				reconnectionAttempts: Infinity,
+				reconnectionDelay: 1000,
+				reconnectionDelayMax: 5000,
+				timeout: 10000,
+				pingTimeout: 10000,
+				pingInterval: 5000,
+			});
+
+			return new Promise((resolve) => {
+				if (!this.socket) {
+					this.isReconnecting = false;
+					resolve(false);
+					return;
 				}
 
-				this.socket = io(this.serverUrl, {
-					timeout: this.connectionTimeout,
-					transports: ["websocket", "polling"],
-					forceNew: true,
-					reconnection: true,
-					reconnectionDelay: 2000,
-					reconnectionDelayMax: 5000,
-					reconnectionAttempts: 10,
-					autoConnect: false,
-					upgrade: true,
-					rememberUpgrade: true,
-				});
+				// Set connection timeout
+				const timeout = setTimeout(() => {
+					console.log("Connection attempt timed out");
+					this.isReconnecting = false;
+					resolve(false);
+				}, 10000);
 
-				this.setupEventListeners(resolve);
-				this.socket.connect();
-			} catch (error) {
-				console.error("Failed to initialize socket connection:", error);
-				this.onError?.(`Socket initialization failed: ${error}`);
-				this.isReconnecting = false;
-				resolve(false);
-			}
-		});
+				this.setupEventListeners((success) => {
+					clearTimeout(timeout);
+					this.isReconnecting = false;
+					resolve(success);
+				});
+			});
+		} catch (error) {
+			console.error("Connection error:", error);
+			this.isReconnecting = false;
+			return false;
+		}
 	}
 
 	private setupEventListeners(resolve: (value: boolean) => void) {

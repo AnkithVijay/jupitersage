@@ -42,7 +42,7 @@ export default function TradingPage() {
 
 	return (
 		<div className="h-full flex flex-col gap-5 z-20 p-4">
-			<header className="flex items-center justify-between p-4 bg-[#1D2129] rounded-lg border border-gray-700">
+			<header className="flex items-center justify-between p-4 glass">
 				<div className="flex items-center space-x-4">
 					<h1 className="text-2xl font-semibold text-white">
 						Jupiter Sage

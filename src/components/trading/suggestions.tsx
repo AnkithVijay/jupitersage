@@ -1,3 +1,4 @@
+"use client";
 import React, { useEffect, useState, useCallback } from "react";
 import OrderCard from "./orderCard";
 import {
@@ -51,16 +52,16 @@ export default function Suggestions({ selectedToken }: SuggestionsProps) {
 		isConnected,
 		getTradingSuggestions,
 		clearSuggestionsError,
-		// currentPrice,
-		// marketAnalysis,
+		currentPrice,
+		marketAnalysis,
 	} = useTradingSocket();
 
 	const defaultTokenMint = "So11111111111111111111111111111111111111112";
 	const currentTokenMint = selectedToken?.address || defaultTokenMint;
 
-	// const [connectionStatus, setConnectionStatus] =
-	// 	useState<string>("Connecting...");
-	// const [lastRequestTime, setLastRequestTime] = useState<Date | null>(null);
+	const [connectionStatus, setConnectionStatus] =
+		useState<string>("Connecting...");
+	const [lastRequestTime, setLastRequestTime] = useState<Date | null>(null);
 
 	const [requestParams, setRequestParams] = useState<SuggestionsRequest>({
 		tokenMint: currentTokenMint,
@@ -113,14 +114,14 @@ export default function Suggestions({ selectedToken }: SuggestionsProps) {
 
 	const requestSuggestions = useCallback(
 		(params: SuggestionsRequest) => {
-			// setLastRequestTime(new Date());
+			setLastRequestTime(new Date());
 
 			const success = getTradingSuggestions(params);
 
 			if (!success) {
-				// setConnectionStatus("Connecting and queuing request...");
+				setConnectionStatus("Connecting and queuing request...");
 			} else {
-				// setConnectionStatus("Request sent");
+				setConnectionStatus("Request sent");
 			}
 		},
 		[getTradingSuggestions]
@@ -128,11 +129,14 @@ export default function Suggestions({ selectedToken }: SuggestionsProps) {
 
 	useEffect(() => {
 		if (isConnected) {
-			// setConnectionStatus("Connected");
+			setConnectionStatus("Connected");
+			if (lastRequestTime) {
+				requestSuggestions(requestParams);
+			}
 		} else {
-			// setConnectionStatus("Reconnecting...");
+			setConnectionStatus("Reconnecting...");
 		}
-	}, [isConnected]);
+	}, [isConnected, lastRequestTime, requestParams, requestSuggestions]);
 
 	useEffect(() => {
 		const newParams = {
@@ -146,8 +150,12 @@ export default function Suggestions({ selectedToken }: SuggestionsProps) {
 	useEffect(() => {
 		if (!isConnected) return;
 
+		requestSuggestions(requestParams);
+
 		const interval = setInterval(() => {
-			requestSuggestions(requestParams);
+			if (isConnected) {
+				requestSuggestions(requestParams);
+			}
 		}, 60000);
 
 		return () => clearInterval(interval);
